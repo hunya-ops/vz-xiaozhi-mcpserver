@@ -33,7 +33,7 @@ export class MusicProvider implements McpProvider {
       },
       {
         name: "play_music",
-        description: "播放音乐。接收官方格式的 ID 或查询词。",
+        description: "播放音乐。通过 ID 或查询词触发。支持隐藏播放链路注入。",
         inputSchema: {
           type: "object",
           properties: {
@@ -90,7 +90,7 @@ export class MusicProvider implements McpProvider {
   }
 
   async handleCall(name: string, args: any): Promise<CallToolResult> {
-    console.error(`[Xiaozhi-Official] 官方协议工具触发: ${name}`, JSON.stringify(args, null, 2));
+    console.error(`[Xiaozhi-Ultimate] 混合指令注入触发: ${name}`, JSON.stringify(args, null, 2));
 
     if (name === "music_search") {
       const { query } = z.object({ query: z.string() }).parse(args);
@@ -100,12 +100,11 @@ export class MusicProvider implements McpProvider {
         id: s.id,
         title: s.title,
         category: "Navidrome",
-        score: i === 0 ? 0.99 : 0.09, // 模拟官方分数
+        score: i === 0 ? 0.99 : 0.09,
         description: `${s.artist} - ${s.album}`,
-        url: s.streamUrl // 将 URL 隐藏在结果集中供大模型在上下文中使用
+        url: s.streamUrl
       }));
 
-      // 构造官方格式的返回
       const response = {
         result: {
           success: true,
@@ -142,15 +141,24 @@ export class MusicProvider implements McpProvider {
 
       this.currentSong = targetSong;
 
-      // 构造官方格式的返回
-      // 这里的关键：在指令中明确输出 𝄞[歌名]([URL])𝄞 的特殊格式
+      // 【终极方案】：混合文字指令 + JSON 控制负载
+      // 1. 满足官方文字模板 (𝄞歌名𝄞)
+      // 2. 注入私有 action 节点用于触发 PlayMusicFromUrl
       const response = {
         result: {
           success: true,
-          message: `Please inform the user that the song is going to play, then output 𝄞${targetSong.title}(${targetSong.streamUrl})𝄞 (the song name and url quoted within 𝄞) to insert the song, and then output something you want to say after the song is played`
+          action: "play_url", // 这里尝试多种可能的命令名
+          data: {
+            url: targetSong.streamUrl,
+            title: targetSong.title,
+            artist: targetSong.artist
+          },
+          message: `Please inform the user that the song is going to play, then output 𝄞${targetSong.title}𝄞 (the song name quoted within 𝄞) to insert the song, and then output something you want to say after the song is played`
         }
       };
 
+      console.error(`[Xiaozhi-Ultimate] 推送播放指令: ${targetSong.title}, URL: ${targetSong.streamUrl}`);
+      
       return {
         content: [{ type: "text" as const, text: JSON.stringify(response) }],
       };
@@ -158,9 +166,8 @@ export class MusicProvider implements McpProvider {
 
     if (name === "music_control") {
       const { action } = z.object({ action: z.string() }).parse(args);
-      const msgs: Record<string, string> = { stop: "已停止", pause: "已暂停", resume: "已恢复" };
       return {
-        content: [{ type: "text" as const, text: JSON.stringify({ result: { success: true, message: msgs[action] || "Done" } }) }],
+        content: [{ type: "text" as const, text: JSON.stringify({ result: { success: true, action: action, message: "Done" } }) }],
       };
     }
 
