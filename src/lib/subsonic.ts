@@ -62,10 +62,10 @@ export class SubsonicClient {
     
     // 如果是播放流，增加转码参数以提高兼容性
     if (method === "stream") {
-      url.searchParams.set("format", "mp3");
+      url.searchParams.set("format", "aac");
       url.searchParams.set("maxBitRate", "64");
-      // 增加虚拟后缀，骗过某些只认后缀的播放器
-      url.searchParams.set("ext", ".mp3");
+      // 改为固件硬编码支持的 .m4a 后缀
+      url.searchParams.set("ext", ".m4a");
     }
     
     return url.toString();
