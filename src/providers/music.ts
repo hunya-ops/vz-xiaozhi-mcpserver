@@ -22,7 +22,7 @@ export class MusicProvider implements McpProvider {
     return [
       {
         name: "music_search",
-        description: "搜索音乐。返回歌曲列表供选择。",
+        description: "搜索音乐并返回推荐列表。结果包含歌曲 ID、名称及其流媒体地址。",
         inputSchema: {
           type: "object",
           properties: {
@@ -32,13 +32,13 @@ export class MusicProvider implements McpProvider {
         },
       },
       {
-        name: "music_play",
-        description: "播放音乐。可以提供歌曲 ID，或者直接提供搜索关键词来播放最匹配的歌曲。",
+        name: "play_music",
+        description: "播放音乐。接收官方格式的 ID 或查询词。",
         inputSchema: {
           type: "object",
           properties: {
-            song_id: { type: "string", description: "歌曲 ID（如果已知）" },
-            query: { type: "string", description: "歌曲名称或搜索关键词（用于直接播放）" },
+            id: { type: "string", description: "歌曲 ID" },
+            query: { type: "string", description: "歌曲名称（用于直接播放）" },
           },
         },
       },
@@ -68,12 +68,6 @@ export class MusicProvider implements McpProvider {
         description: "展示当前正在播放的歌曲元数据与流媒体地址。",
         mimeType: "application/json",
       },
-      {
-        uri: "music://playlist",
-        name: "当前播放列表",
-        description: "展示当前队列中的歌曲列表。",
-        mimeType: "application/json",
-      }
     ];
   }
 
@@ -87,113 +81,86 @@ export class MusicProvider implements McpProvider {
             text: JSON.stringify({
               status: this.currentSong ? "playing" : "stopped",
               song: this.currentSong,
-              timestamp: new Date().toISOString(),
             }, null, 2),
           }
         ]
       };
     }
-    
-    if (uri === "music://playlist") {
-      return {
-        contents: [
-          {
-            uri: "music://playlist",
-            mimeType: "application/json",
-            text: JSON.stringify({
-              count: this.playlist.length,
-              songs: this.playlist,
-            }, null, 2),
-          }
-        ]
-      };
-    }
-
     throw new Error(`Resource not found: ${uri}`);
   }
 
   async handleCall(name: string, args: any): Promise<CallToolResult> {
-    console.error(`[Xiaozhi-Intelligent] 工具触发: ${name}`, JSON.stringify(args, null, 2));
+    console.error(`[Xiaozhi-Official] 官方协议工具触发: ${name}`, JSON.stringify(args, null, 2));
 
     if (name === "music_search") {
       const { query } = z.object({ query: z.string() }).parse(args);
       const songs = await this.client.searchSongs(query);
 
-      if (songs.length === 0) {
-        return {
-          content: [{ type: "text" as const, text: `抱歉，没有找到关于 "${query}" 的音乐。` }],
-        };
-      }
+      const officialResults = songs.map((s, i) => ({
+        id: s.id,
+        title: s.title,
+        category: "Navidrome",
+        score: i === 0 ? 0.99 : 0.09, // 模拟官方分数
+        description: `${s.artist} - ${s.album}`,
+        url: s.streamUrl // 将 URL 隐藏在结果集中供大模型在上下文中使用
+      }));
 
-      // 更新搜索后的临时列表
-      this.playlist = songs.slice(0, 10);
-
-      const list = songs
-        .map((s, i) => `${i + 1}. ${s.title} - ${s.artist} [ID: ${s.id}]`)
-        .join("\n");
+      // 构造官方格式的返回
+      const response = {
+        result: {
+          success: true,
+          results: officialResults,
+          count: officialResults.length,
+          message: `Found ${officialResults.length} related songs, please use the play_music tool to play the music`
+        }
+      };
 
       return {
-        content: [{ type: "text" as const, text: `为您找到以下歌曲：\n${list}\n\n您可以对我说“播放第一个”或指定 ID 播放。` }],
+        content: [{ type: "text" as const, text: JSON.stringify(response) }],
       };
     }
 
-    if (name === "music_play") {
-      const { song_id, query } = z.object({ 
-        song_id: z.string().optional(),
+    if (name === "play_music" || name === "music_play") {
+      const { id, query } = z.object({ 
+        id: z.string().optional(),
         query: z.string().optional() 
       }).parse(args);
 
       let targetSong: Song | null = null;
-
-      if (song_id) {
-        console.error(`[Xiaozhi-Intelligent] 正在通过 ID 解析歌曲: ${song_id}`);
-        targetSong = await this.client.getSong(song_id);
+      if (id) {
+        targetSong = await this.client.getSong(id);
       } else if (query) {
-        console.error(`[Xiaozhi-Intelligent] 正在通过关键词直接搜索并播放: ${query}`);
         const results = await this.client.searchSongs(query);
-        if (results.length > 0) {
-          targetSong = results[0];
-        }
+        if (results.length > 0) targetSong = results[0];
       }
 
       if (!targetSong) {
         return {
-          content: [{ type: "text" as const, text: "抱歉，找不到您想播放的这首歌。" }],
+          content: [{ type: "text" as const, text: JSON.stringify({ result: { success: false, message: "Song not found" } }) }],
         };
       }
 
-      // 更新播放状态
       this.currentSong = targetSong;
-      console.error(`[Xiaozhi-Intelligent] 状态已更新，播放 URL: ${targetSong.streamUrl}`);
+
+      // 构造官方格式的返回
+      // 这里的关键：在指令中明确输出 𝄞[歌名]([URL])𝄞 的特殊格式
+      const response = {
+        result: {
+          success: true,
+          message: `Please inform the user that the song is going to play, then output 𝄞${targetSong.title}(${targetSong.streamUrl})𝄞 (the song name and url quoted within 𝄞) to insert the song, and then output something you want to say after the song is played`
+        }
+      };
 
       return {
-        content: [
-          {
-            type: "text" as const,
-            text: `正在播放：${targetSong.title} - ${targetSong.artist}\n链接：${targetSong.streamUrl}`,
-          },
-        ],
+        content: [{ type: "text" as const, text: JSON.stringify(response) }],
       };
     }
 
     if (name === "music_control") {
       const { action } = z.object({ action: z.string() }).parse(args);
-      console.error(`[Xiaozhi-Intelligent] 执行播放控制: ${action}`);
-      
-      if (action === "stop") {
-        this.currentSong = null;
-      }
-
-      const responses: Record<string, string> = {
-        pause: "已为您暂停播放。",
-        resume: "正在继续为您播放。",
-        stop: "已停止播放。",
-        next: "正在为您切换到下一首。",
-        previous: "正在为您返回上一首。",
-      };
-
+      const msgs: Record<string, string> = { stop: "已停止", pause: "已暂停", resume: "已恢复" };
       return {
-        content: [{ type: "text" as const, text: responses[action] || "指令已执行。" }],
+        content: [{ type: "text" as const, text: JSON.stringify({ result: { success: true, message: msgs[action] || "Done" } }) }],
       };
     }
 
