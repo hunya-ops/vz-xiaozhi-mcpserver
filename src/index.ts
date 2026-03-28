@@ -3,6 +3,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
+  ListResourcesRequestSchema,
+  ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { SubsonicClient } from "./lib/subsonic.js";
 import { MusicProvider } from "./providers/music.js";
@@ -38,9 +40,33 @@ const server = new Server(
   {
     capabilities: {
       tools: {},
+      resources: {},
     },
   }
 );
+
+/**
+ * Register all resources from providers
+ */
+server.setRequestHandler(ListResourcesRequestSchema, async () => {
+  const resources = providers.flatMap((p) => p.getResources());
+  return { resources };
+});
+
+/**
+ * Handle resource reading
+ */
+server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+  const { uri } = request.params;
+  for (const provider of providers) {
+    try {
+      return await provider.handleReadResource(uri);
+    } catch (e) {
+      // Continue to next provider if not found
+    }
+  }
+  throw new Error(`Resource not found: ${uri}`);
+});
 
 /**
  * Register all tools from providers

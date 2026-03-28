@@ -1,14 +1,18 @@
-import { Tool, CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { SubsonicClient } from "../lib/subsonic.js";
+import { Tool, CallToolResult, Resource } from "@modelcontextprotocol/sdk/types.js";
+import { SubsonicClient, Song } from "../lib/subsonic.js";
 import { z } from "zod";
 
 export interface McpProvider {
   getTools(): Tool[];
   handleCall(name: string, args: any): Promise<CallToolResult>;
+  getResources(): Resource[];
+  handleReadResource(uri: string): Promise<{ contents: any[] }>;
 }
 
 export class MusicProvider implements McpProvider {
   private client: SubsonicClient;
+  private currentSong: Song | null = null;
+  private playlist: Song[] = [];
 
   constructor(client: SubsonicClient) {
     this.client = client;
@@ -56,6 +60,58 @@ export class MusicProvider implements McpProvider {
     ];
   }
 
+  getResources(): Resource[] {
+    return [
+      {
+        uri: "music://current",
+        name: "当前播放曲目",
+        description: "展示当前正在播放的歌曲元数据与流媒体地址。",
+        mimeType: "application/json",
+      },
+      {
+        uri: "music://playlist",
+        name: "当前播放列表",
+        description: "展示当前队列中的歌曲列表。",
+        mimeType: "application/json",
+      }
+    ];
+  }
+
+  async handleReadResource(uri: string) {
+    if (uri === "music://current") {
+      return {
+        contents: [
+          {
+            uri: "music://current",
+            mimeType: "application/json",
+            text: JSON.stringify({
+              status: this.currentSong ? "playing" : "stopped",
+              song: this.currentSong,
+              timestamp: new Date().toISOString(),
+            }, null, 2),
+          }
+        ]
+      };
+    }
+    
+    if (uri === "music://playlist") {
+      return {
+        contents: [
+          {
+            uri: "music://playlist",
+            mimeType: "application/json",
+            text: JSON.stringify({
+              count: this.playlist.length,
+              songs: this.playlist,
+            }, null, 2),
+          }
+        ]
+      };
+    }
+
+    throw new Error(`Resource not found: ${uri}`);
+  }
+
   async handleCall(name: string, args: any): Promise<CallToolResult> {
     console.error(`[Xiaozhi-Intelligent] 工具触发: ${name}`, JSON.stringify(args, null, 2));
 
@@ -68,6 +124,9 @@ export class MusicProvider implements McpProvider {
           content: [{ type: "text" as const, text: `抱歉，没有找到关于 "${query}" 的音乐。` }],
         };
       }
+
+      // 更新搜索后的临时列表
+      this.playlist = songs.slice(0, 10);
 
       const list = songs
         .map((s, i) => `${i + 1}. ${s.title} - ${s.artist} [ID: ${s.id}]`)
@@ -84,7 +143,7 @@ export class MusicProvider implements McpProvider {
         query: z.string().optional() 
       }).parse(args);
 
-      let targetSong = null;
+      let targetSong: Song | null = null;
 
       if (song_id) {
         console.error(`[Xiaozhi-Intelligent] 正在通过 ID 解析歌曲: ${song_id}`);
@@ -103,12 +162,15 @@ export class MusicProvider implements McpProvider {
         };
       }
 
-      console.error(`[Xiaozhi-Intelligent] 成功匹配流媒体 URL: ${targetSong.streamUrl}`);
+      // 更新播放状态
+      this.currentSong = targetSong;
+      console.error(`[Xiaozhi-Intelligent] 状态已更新，播放 URL: ${targetSong.streamUrl}`);
+
       return {
         content: [
           {
             type: "text" as const,
-            text: `正在为您播发：${targetSong.title} - ${targetSong.artist}\n播放链接：${targetSong.streamUrl}`,
+            text: `正在播放：${targetSong.title} - ${targetSong.artist}\n链接：${targetSong.streamUrl}`,
           },
         ],
       };
@@ -118,6 +180,10 @@ export class MusicProvider implements McpProvider {
       const { action } = z.object({ action: z.string() }).parse(args);
       console.error(`[Xiaozhi-Intelligent] 执行播放控制: ${action}`);
       
+      if (action === "stop") {
+        this.currentSong = null;
+      }
+
       const responses: Record<string, string> = {
         pause: "已为您暂停播放。",
         resume: "正在继续为您播放。",

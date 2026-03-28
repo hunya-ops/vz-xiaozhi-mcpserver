@@ -63,7 +63,7 @@ export class SubsonicClient {
     // 如果是播放流，增加转码参数以提高兼容性
     if (method === "stream") {
       url.searchParams.set("format", "mp3");
-      url.searchParams.set("maxBitRate", "128");
+      url.searchParams.set("maxBitRate", "64");
       // 增加虚拟后缀，骗过某些只认后缀的播放器
       url.searchParams.set("ext", ".mp3");
     }
