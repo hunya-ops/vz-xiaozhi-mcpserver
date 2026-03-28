@@ -26,7 +26,7 @@ export class SubsonicClient {
     this.config = config;
   }
 
-  private getAuthParams(): URLSearchParams {
+  private getAuthParams(isBinary = false): URLSearchParams {
     const salt = crypto.randomBytes(8).toString("hex");
     const token = crypto
       .createHash("md5")
@@ -39,7 +39,11 @@ export class SubsonicClient {
     params.set("s", salt);
     params.set("v", this.apiVersion);
     params.set("c", this.config.clientName);
-    params.set("f", "json");
+    
+    // 只有非二进制（如搜索）才需要 f=json
+    if (!isBinary) {
+      params.set("f", "json");
+    }
     return params;
   }
 
@@ -49,8 +53,21 @@ export class SubsonicClient {
       : this.config.baseUrl;
       
     const url = new URL(`${base}/rest/${method}.view`);
-    const auth = this.getAuthParams();
+    
+    // 判断是否是二进制流方法
+    const isBinaryMethod = ["stream", "getCoverArt", "download"].includes(method);
+    const auth = this.getAuthParams(isBinaryMethod);
+    
     auth.forEach((v, k) => url.searchParams.set(k, v));
+    
+    // 如果是播放流，增加转码参数以提高兼容性
+    if (method === "stream") {
+      url.searchParams.set("format", "mp3");
+      url.searchParams.set("maxBitRate", "128");
+      // 增加虚拟后缀，骗过某些只认后缀的播放器
+      url.searchParams.set("ext", ".mp3");
+    }
+    
     return url.toString();
   }
 
