@@ -79,6 +79,32 @@ export class SubsonicClient {
     }
   }
 
+  async getSong(id: string): Promise<Song | null> {
+    const url = new URL(this.getBaseRestUrl("getSong", false));
+    url.searchParams.set("id", id);
+
+    try {
+      const resp = await fetch(url.toString());
+      const data = (await resp.json()) as any;
+      const s = data["subsonic-response"]?.song;
+
+      if (!s) return null;
+
+      return {
+        id: s.id,
+        title: s.title,
+        artist: s.artist,
+        album: s.album,
+        duration: s.duration,
+        coverArt: this.getCoverArtUrl(s.id),
+        streamUrl: this.getStreamUrl(s.id),
+      };
+    } catch (error) {
+      console.error(`Subsonic 获取歌曲详情失败 (ID: ${id}):`, error);
+      return null;
+    }
+  }
+
   getStreamUrl(id: string): string {
     const url = new URL(this.getBaseRestUrl("stream", true));
     url.searchParams.set("id", id);
