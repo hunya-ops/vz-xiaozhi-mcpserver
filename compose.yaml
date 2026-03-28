@@ -1,0 +1,7 @@
+services:
+  vz-xiaozhi-mcp:
+    build: .
+    container_name: vz-xiaozhi-mcp
+    restart: unless-stopped
+    network_mode: "host"
+    env_file: .env
