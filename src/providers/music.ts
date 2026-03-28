@@ -46,7 +46,7 @@ export class MusicProvider implements McpProvider {
         return {
           content: [
             {
-              type: "text",
+              type: "text" as const,
               text: `抱歉，我在您的 Navidrome 服务器上没有找到与 "${query}" 相关的歌曲。`,
             },
           ],
@@ -60,7 +60,7 @@ export class MusicProvider implements McpProvider {
       const response = {
         content: [
           {
-            type: "text",
+            type: "text" as const,
             text: `正在为您准备播放：${bestMatch.title} - ${bestMatch.artist}\n` + 
                   `播放链接：${bestMatch.streamUrl}\n` +
                   (songs.length > 1 ? `\n还为您找到了其他 ${songs.length - 1} 首相关歌曲。` : ""),
